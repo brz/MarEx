@@ -20,21 +20,20 @@ namespace MarEx
                 string input = null;
                 string output = null;
                 bool decompress;
-
-                if (args[0] == "d")
+                
+                switch(args[0])
                 {
-                    decompress = true;
+                    case "d":
+                        decompress = true;
+                        break;
+                    case "c":
+                        decompress = false;
+                        break;
+                    defualt:
+                        Console.WriteLine("No compress or decompress argument supplied");
+                        return;
                 }
-                else if (args[0] == "c")
-                {
-                    decompress = false;
-                }
-                else
-                {
-                    Console.WriteLine("No compress or decompress argument supplied");
-                    return;
-                }
-
+               
                 for (var i = 1; i < args.Length; i += 2)
                 {
                     if(args[i] == "-i")
