@@ -1,0 +1,2 @@
+dotnet publish -c Release --self-contained true -p:PublishTrimmed=true -p:PublishSingleFile=true -r win-x86 -p:IncludeAllContentForSelfExtract=true
+dotnet publish -c Release --self-contained true -p:PublishTrimmed=true -p:PublishSingleFile=true -r win-x64 -p:IncludeAllContentForSelfExtract=true
