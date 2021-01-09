@@ -29,7 +29,7 @@ namespace MarEx
                     case "c":
                         decompress = false;
                         break;
-                    defualt:
+                    default:
                         Console.WriteLine("No compress or decompress argument supplied");
                         return;
                 }
