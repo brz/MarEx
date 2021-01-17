@@ -6,47 +6,62 @@ using System.Text;
 
 namespace MarEx
 {
+    /// <summary>
+    /// Tool to decompress, compress and list TOC for MAR files (MSN Archive).
+    /// MAR files are a proprietary format, used in MSN Explorer.
+    /// Based on the information found here: https://www.neowin.net/forum/topic/35549-skinning-msn-explorer
+    /// </summary>
     class Program
     {
         static void Main(string[] args)
         {
-            if(args.Length != 5)
+            if(args.Length == 0)
             {
                 Console.WriteLine("Insufficient arguments supplied");
                 return;
             }
-            else
+
+            MarExAction? action;
+            switch (args[0])
             {
+                case "d": //Decompress
+                    action = MarExAction.Decompress;
+                    break;
+                case "c": //Compress
+                    action = MarExAction.Compress;
+                    break;
+                case "i": //Info
+                    action = MarExAction.Info;
+                    break;
+                default:
+                    Console.WriteLine("First argument must indicate one of the following actions: d (decompress), c (compress) or i (info)");
+                    return;
+            }
+
+            if(action == MarExAction.Decompress || action == MarExAction.Compress)
+            {
+                if(args.Length != 5 || !args.Contains("-i") || !args.Contains("-o"))
+                {
+                    Console.WriteLine("Insufficient arguments supplied");
+                    return;
+                }
+
                 string input = null;
                 string output = null;
-                bool decompress;
-                
-                switch(args[0])
-                {
-                    case "d":
-                        decompress = true;
-                        break;
-                    case "c":
-                        decompress = false;
-                        break;
-                    default:
-                        Console.WriteLine("No compress or decompress argument supplied");
-                        return;
-                }
-               
+
                 for (var i = 1; i < args.Length; i += 2)
                 {
-                    if(args[i] == "-i")
+                    if (args[i] == "-i")
                     {
                         input = args[i + 1];
                     }
-                    else if(args[i] == "-o")
+                    else if (args[i] == "-o")
                     {
                         output = args[i + 1];
                     }
                 }
 
-                if (decompress)
+                if(action == MarExAction.Decompress)
                 {
                     if (!File.Exists(input))
                     {
@@ -59,7 +74,7 @@ namespace MarEx
                     Console.WriteLine($"File decompressed to output folder {output}");
                     return;
                 }
-                else
+                else if(action == MarExAction.Compress)
                 {
                     if (!Directory.Exists(input))
                     {
@@ -73,12 +88,35 @@ namespace MarEx
                     return;
                 }
             }
+            else if(action == MarExAction.Info)
+            {
+                if(args.Length != 2)
+                {
+                    Console.WriteLine("Insufficient arguments supplied");
+                    return;
+                }
+
+                if (!File.Exists(args[1]))
+                {
+                    Console.WriteLine("Input file not found");
+                    return;
+                }
+
+                var bytes = File.ReadAllBytes(args[1]);
+                var contentInfos = GetContentInfos(bytes);
+
+                var tablePrinter = new TablePrinter("FileName", "Size", "CRC32", "StartPos");
+                foreach(var contentInfo in contentInfos)
+                {
+                    tablePrinter.AddRow(contentInfo.FileName, contentInfo.Size, contentInfo.Crc32, contentInfo.StartPosition);
+                }
+                tablePrinter.Print();
+                Console.WriteLine($"Total number of files: {contentInfos.Count}");
+            }
         }
 
-        private static void Decompress(string inputFile, string outputFolder)
+        private static List<ContentInfo> GetContentInfos(byte[] bytes)
         {
-            var bytes = File.ReadAllBytes(inputFile);
-
             //Skip header (first 8 bytes)
             var currentPos = 8;
 
@@ -124,6 +162,15 @@ namespace MarEx
                 currentPos += 68;
             }
 
+            return contentInfos;
+        }
+
+        private static void Decompress(string inputFile, string outputFolder)
+        {
+            var bytes = File.ReadAllBytes(inputFile);
+
+            var contentInfos = GetContentInfos(bytes);
+
             foreach (var item in contentInfos)
             {
                 var contentBytes = bytes.Skip(Convert.ToInt32(item.StartPosition)).Take(Convert.ToInt32(item.Size)).ToArray();
@@ -140,14 +187,19 @@ namespace MarEx
         private static void Compress(string inputFolder, string outputFile)
         {
             var fileNames = Directory.GetFiles(inputFolder, "*.*", SearchOption.AllDirectories);
-            fileNames = fileNames.OrderBy(f => f).ToArray(); //Order files alphabetically
+
+            var orderCounter = 0;
+            var fileNamesOrderedToc = fileNames.OrderBy(f => f.Replace("_", "a"), StringComparer.OrdinalIgnoreCase).Select(f => new { PathAndFileName = f, Order = orderCounter++}).ToList(); //Order for TOC
+            orderCounter = 0;
+            var fileNamesOrderedFiles = fileNames.OrderBy(f => f, StringComparer.OrdinalIgnoreCase).Select(f => new { PathAndFileName = f, Order = orderCounter++ }).ToList(); //Order for files
+
             var repackInfos = new List<RepackInfo>();
             for (var i = 0; i < fileNames.Length; i++)
             {
-                var fileName = fileNames[i];
-                var outputFileName = fileName.Substring(inputFolder.EndsWith(Path.DirectorySeparatorChar.ToString()) ? inputFolder.Length : inputFolder.Length + 1).Replace(Path.DirectorySeparatorChar, '/');
-                var fileAsByteArray = File.ReadAllBytes(fileName);
-                var size = Convert.ToUInt32(new FileInfo(fileName).Length);
+                var pathAndFileName = fileNamesOrderedFiles.OrderBy(f => f.Order).Select(f => f.PathAndFileName).Skip(i).First();
+                var outputFileName = pathAndFileName.Substring(inputFolder.EndsWith(Path.DirectorySeparatorChar.ToString()) ? inputFolder.Length : inputFolder.Length + 1).Replace(Path.DirectorySeparatorChar, '/');
+                var fileAsByteArray = File.ReadAllBytes(pathAndFileName);
+                var size = Convert.ToUInt32(new FileInfo(pathAndFileName).Length);
                 var crc32 = Helpers.CalculateCrc32(fileAsByteArray);
 
                 int startPosition;
@@ -160,7 +212,7 @@ namespace MarEx
                     startPosition = (int)repackInfos.Last().StartPosition + (int)repackInfos.Last().Size;
                 }
 
-                repackInfos.Add(new RepackInfo { FileName = outputFileName, Crc32 = crc32, Size = size, StartPosition = (uint)startPosition, File = fileAsByteArray });
+                repackInfos.Add(new RepackInfo { PathAndFileName = pathAndFileName, FileName = outputFileName, Crc32 = crc32, Size = size, StartPosition = (uint)startPosition, File = fileAsByteArray });
             }
 
             var totalOutputSize = 8 + 4 + 68 * repackInfos.Count + repackInfos.Sum(f => f.Size);
@@ -185,7 +237,9 @@ namespace MarEx
             //Append file descriptions and file contents
             for (var i = 0; i < repackInfos.Count; i++)
             {
-                var repackInfo = repackInfos[i];
+                var rdr = fileNamesOrderedToc.OrderBy(f => f.Order).Select(f => f.PathAndFileName).Skip(i).First();
+                var repackInfo = repackInfos.Where(ri => ri.PathAndFileName == rdr).First();
+                //var repackInfo = repackInfos[i];
 
                 //File description for each file is 68 bytes
                 var fileDescriptionBytes = new byte[68];
@@ -210,5 +264,12 @@ namespace MarEx
             }
             File.WriteAllBytes(outputFile, outputByteArray);
         }
+    }
+
+    public enum MarExAction
+    {
+        Decompress = 1,
+        Compress = 2,
+        Info = 3
     }
 }
